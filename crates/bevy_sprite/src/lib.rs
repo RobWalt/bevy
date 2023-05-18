@@ -1,5 +1,6 @@
 #![allow(clippy::type_complexity)]
 
+use crate::render::usability_trait::IsSpritePipeline;
 mod bundle;
 mod dynamic_texture_atlas_builder;
 mod mesh2d;
@@ -30,17 +31,15 @@ pub use texture_atlas_builder::*;
 
 use bevy_app::prelude::*;
 use bevy_asset::{AddAsset, Assets, Handle, HandleUntyped};
-use bevy_core_pipeline::core_2d::Transparent2d;
 use bevy_ecs::prelude::*;
 use bevy_reflect::TypeUuid;
 use bevy_render::{
     mesh::Mesh,
     primitives::Aabb,
-    render_phase::AddRenderCommand,
-    render_resource::{Shader, SpecializedRenderPipelines},
+    render_resource::Shader,
     texture::Image,
     view::{NoFrustumCulling, VisibilitySystems},
-    ExtractSchedule, Render, RenderApp, RenderSet,
+    RenderApp,
 };
 
 #[derive(Default)]
@@ -53,6 +52,8 @@ pub const SPRITE_SHADER_HANDLE: HandleUntyped =
 pub enum SpriteSystem {
     ExtractSprites,
 }
+
+type Pipeline = SpritePipeline;
 
 impl Plugin for SpritePlugin {
     fn build(&self, app: &mut App) {
@@ -73,32 +74,13 @@ impl Plugin for SpritePlugin {
             );
 
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app
-                .init_resource::<ImageBindGroups>()
-                .init_resource::<SpecializedRenderPipelines<SpritePipeline>>()
-                .init_resource::<SpriteMeta>()
-                .init_resource::<ExtractedSprites>()
-                .init_resource::<SpriteAssetEvents>()
-                .add_render_command::<Transparent2d, DrawSprite>()
-                .add_systems(
-                    ExtractSchedule,
-                    (
-                        extract_sprites.in_set(SpriteSystem::ExtractSprites),
-                        extract_sprite_events,
-                    ),
-                )
-                .add_systems(
-                    Render,
-                    queue_sprites
-                        .in_set(RenderSet::Queue)
-                        .ambiguous_with(queue_material2d_meshes::<ColorMaterial>),
-                );
-        };
+            Pipeline::prepare_render_app(render_app);
+        }
     }
 
     fn finish(&self, app: &mut App) {
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app.init_resource::<SpritePipeline>();
+            Pipeline::add_self_to(render_app);
         }
     }
 }
