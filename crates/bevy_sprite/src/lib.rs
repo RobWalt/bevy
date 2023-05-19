@@ -47,19 +47,23 @@ pub struct SpritePlugin;
 
 pub const SPRITE_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2763343953151597127);
+pub const SPRITE_SHADER_HANDLE_NEW: HandleUntyped =
+    HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2763343953151597128);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub enum SpriteSystem {
     ExtractSprites,
 }
 
-type Pipeline = SpritePipeline;
+type Pipeline = SpritePipelineNew;
 
 impl Plugin for SpritePlugin {
     fn build(&self, app: &mut App) {
         let mut shaders = app.world.resource_mut::<Assets<Shader>>();
         let sprite_shader = Shader::from_wgsl(include_str!("render/sprite.wgsl"));
         shaders.set_untracked(SPRITE_SHADER_HANDLE, sprite_shader);
+        let sprite_shader_new = Shader::from_wgsl(include_str!("render/sprite_new.wgsl"));
+        shaders.set_untracked(SPRITE_SHADER_HANDLE_NEW, sprite_shader_new);
         app.add_asset::<TextureAtlas>()
             .register_asset_reflect::<TextureAtlas>()
             .register_type::<Sprite>()

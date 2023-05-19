@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 use crate::{
     texture_atlas::{TextureAtlas, TextureAtlasSprite},
-    Sprite, SPRITE_SHADER_HANDLE,
+    Sprite, SPRITE_SHADER_HANDLE_NEW,
 };
 use bevy_asset::{AssetEvent, Assets, Handle, HandleId};
 use bevy_core_pipeline::{
@@ -15,7 +15,8 @@ use bevy_ecs::{
     prelude::*,
     system::{lifetimeless::*, SystemParamItem, SystemState},
 };
-use bevy_math::{Rect, Vec2};
+use bevy_log::info;
+use bevy_math::{Mat3, Mat4, Rect, Vec2, Vec3};
 use bevy_reflect::Uuid;
 use bevy_render::{
     color::Color,
@@ -35,20 +36,20 @@ use bevy_render::{
     },
     Extract,
 };
-use bevy_transform::components::GlobalTransform;
+use bevy_transform::{components::GlobalTransform, prelude::Transform};
 use bevy_utils::FloatOrd;
 use bevy_utils::HashMap;
 use bytemuck::{Pod, Zeroable};
 use fixedbitset::FixedBitSet;
 
 #[derive(Resource)]
-pub struct SpritePipeline {
+pub struct SpritePipelineNew {
     view_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
     pub dummy_white_gpu_image: GpuImage,
 }
 
-impl FromWorld for SpritePipeline {
+impl FromWorld for SpritePipelineNew {
     fn from_world(world: &mut World) -> Self {
         let mut system_state: SystemState<(
             Res<RenderDevice>,
@@ -130,7 +131,7 @@ impl FromWorld for SpritePipeline {
             }
         };
 
-        SpritePipeline {
+        SpritePipelineNew {
             view_layout,
             material_layout,
             dummy_white_gpu_image,
@@ -199,24 +200,41 @@ impl SpritePipelineKey {
     }
 }
 
-impl SpecializedRenderPipeline for SpritePipeline {
+impl SpecializedRenderPipeline for SpritePipelineNew {
     type Key = SpritePipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
-        let mut formats = vec![
+        let mut vertex_format = vec![
             // position
-            VertexFormat::Float32x3,
+            VertexFormat::Float32x2,
             // uv
             VertexFormat::Float32x2,
         ];
 
+        let instance_format = vec![
+            // transform mat
+            VertexFormat::Float32x4,
+            VertexFormat::Float32x4,
+            VertexFormat::Float32x4,
+            VertexFormat::Float32x4,
+        ];
+
         if key.contains(SpritePipelineKey::COLORED) {
             // color
-            formats.push(VertexFormat::Float32x4);
+            vertex_format.push(VertexFormat::Float32x4);
         }
 
         let vertex_layout =
-            VertexBufferLayout::from_vertex_formats(VertexStepMode::Vertex, formats);
+            VertexBufferLayout::from_vertex_formats(VertexStepMode::Vertex, vertex_format);
+
+        let shader_location_offset = vertex_layout.attributes.len();
+
+        let mut instance_layout =
+            VertexBufferLayout::from_vertex_formats(VertexStepMode::Instance, instance_format);
+
+        instance_layout.attributes.iter_mut().for_each(|mut att| {
+            att.shader_location += shader_location_offset as u32;
+        });
 
         let mut shader_defs = Vec::new();
         if key.contains(SpritePipelineKey::COLORED) {
@@ -260,13 +278,13 @@ impl SpecializedRenderPipeline for SpritePipeline {
 
         RenderPipelineDescriptor {
             vertex: VertexState {
-                shader: SPRITE_SHADER_HANDLE.typed::<Shader>(),
+                shader: SPRITE_SHADER_HANDLE_NEW.typed::<Shader>(),
                 entry_point: "vertex".into(),
                 shader_defs: shader_defs.clone(),
-                buffers: vec![vertex_layout],
+                buffers: vec![vertex_layout, instance_layout],
             },
             fragment: Some(FragmentState {
-                shader: SPRITE_SHADER_HANDLE.typed::<Shader>(),
+                shader: SPRITE_SHADER_HANDLE_NEW.typed::<Shader>(),
                 shader_defs,
                 entry_point: "fragment".into(),
                 targets: vec![Some(ColorTargetState {
@@ -423,16 +441,22 @@ pub fn extract_sprites(
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
 struct SpriteVertex {
-    pub position: [f32; 3],
+    pub position: [f32; 2],
     pub uv: [f32; 2],
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct SpriteInstanceData {
+    pub transform: [[f32; 4]; 4],
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct ColoredSpriteVertex {
-    pub position: [f32; 3],
+    pub position: [f32; 2],
     pub uv: [f32; 2],
     pub color: [f32; 4],
 }
@@ -441,6 +465,7 @@ struct ColoredSpriteVertex {
 pub struct SpriteMeta {
     vertices: BufferVec<SpriteVertex>,
     colored_vertices: BufferVec<ColoredSpriteVertex>,
+    instace_data: BufferVec<SpriteInstanceData>,
     view_bind_group: Option<BindGroup>,
 }
 
@@ -449,6 +474,7 @@ impl Default for SpriteMeta {
         Self {
             vertices: BufferVec::new(BufferUsages::VERTEX),
             colored_vertices: BufferVec::new(BufferUsages::VERTEX),
+            instace_data: BufferVec::new(BufferUsages::VERTEX),
             view_bind_group: None,
         }
     }
@@ -456,12 +482,7 @@ impl Default for SpriteMeta {
 
 const QUAD_INDICES: [usize; 6] = [0, 2, 3, 0, 1, 2];
 
-const QUAD_VERTEX_POSITIONS: [Vec2; 4] = [
-    Vec2::new(-0.5, -0.5),
-    Vec2::new(0.5, -0.5),
-    Vec2::new(0.5, 0.5),
-    Vec2::new(-0.5, 0.5),
-];
+const QUAD_VERTEX_POSITIONS: [[f32; 2]; 4] = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]];
 
 const QUAD_UVS: [Vec2; 4] = [
     Vec2::new(0., 1.),
@@ -490,8 +511,8 @@ pub fn queue_sprites(
     render_queue: Res<RenderQueue>,
     mut sprite_meta: ResMut<SpriteMeta>,
     view_uniforms: Res<ViewUniforms>,
-    sprite_pipeline: Res<SpritePipeline>,
-    mut pipelines: ResMut<SpecializedRenderPipelines<SpritePipeline>>,
+    sprite_pipeline: Res<SpritePipelineNew>,
+    mut pipelines: ResMut<SpecializedRenderPipelines<SpritePipelineNew>>,
     pipeline_cache: Res<PipelineCache>,
     mut image_bind_groups: ResMut<ImageBindGroups>,
     gpu_images: Res<RenderAssets<Image>>,
@@ -524,6 +545,7 @@ pub fn queue_sprites(
         // Clear the vertex buffers
         sprite_meta.vertices.clear();
         sprite_meta.colored_vertices.clear();
+        sprite_meta.instace_data.clear();
 
         sprite_meta.view_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
             entries: &[BindGroupEntry {
@@ -687,13 +709,24 @@ pub fn queue_sprites(
                 }
 
                 // Apply size and global transform
-                let positions = QUAD_VERTEX_POSITIONS.map(|quad_pos| {
-                    extracted_sprite
+                //let positions = QUAD_VERTEX_POSITIONS.map(|quad_pos| {
+                //    extracted_sprite
+                //        .transform
+                //        .transform_point(
+                //            ((quad_pos - extracted_sprite.anchor) * quad_size).extend(0.),
+                //        )
+                //        .into()
+                //});
+
+                sprite_meta.instace_data.push(SpriteInstanceData {
+                    transform: extracted_sprite
                         .transform
-                        .transform_point(
-                            ((quad_pos - extracted_sprite.anchor) * quad_size).extend(0.),
+                        .mul_transform(
+                            Transform::from_translation(-extracted_sprite.anchor.extend(0.0))
+                                .with_scale(quad_size.extend(1.0)),
                         )
-                        .into()
+                        .compute_matrix()
+                        .to_cols_array_2d(),
                 });
 
                 // These items will be sorted by depth with other phase items
@@ -704,7 +737,7 @@ pub fn queue_sprites(
                     let vertex_color = extracted_sprite.color.as_linear_rgba_f32();
                     for i in QUAD_INDICES {
                         sprite_meta.colored_vertices.push(ColoredSpriteVertex {
-                            position: positions[i],
+                            position: QUAD_VERTEX_POSITIONS[i],
                             uv: uvs[i].into(),
                             color: vertex_color,
                         });
@@ -723,7 +756,7 @@ pub fn queue_sprites(
                 } else {
                     for i in QUAD_INDICES {
                         sprite_meta.vertices.push(SpriteVertex {
-                            position: positions[i],
+                            position: QUAD_VERTEX_POSITIONS[i],
                             uv: uvs[i].into(),
                         });
                     }
@@ -746,6 +779,9 @@ pub fn queue_sprites(
             .write_buffer(&render_device, &render_queue);
         sprite_meta
             .colored_vertices
+            .write_buffer(&render_device, &render_queue);
+        sprite_meta
+            .instace_data
             .write_buffer(&render_device, &render_queue);
     }
 }
@@ -824,7 +860,9 @@ impl<P: BatchedPhaseItem> RenderCommand<P> for DrawSpriteBatch {
         } else {
             pass.set_vertex_buffer(0, sprite_meta.vertices.buffer().unwrap().slice(..));
         }
-        pass.draw(item.batch_range().as_ref().unwrap().clone(), 0..1);
+        pass.set_vertex_buffer(1, sprite_meta.instace_data.buffer().unwrap().slice(..));
+        let range = item.batch_range().as_ref().unwrap().clone();
+        pass.draw(range, 0..1);
         RenderCommandResult::Success
     }
 }
