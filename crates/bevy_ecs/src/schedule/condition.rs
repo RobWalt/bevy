@@ -183,6 +183,7 @@ pub mod common_conditions {
         change_detection::DetectChanges,
         event::{Event, EventReader},
         prelude::{Component, Query, With},
+        query::ReadOnlyWorldQuery,
         removal_detection::RemovedComponents,
         schedule::{State, States},
         system::{IntoSystem, Res, Resource, System},
@@ -899,6 +900,54 @@ pub mod common_conditions {
     }
 
     /// Generates a [`Condition`](super::Condition)-satisfying closure that returns `true`
+    /// if there are any entities which pass the given [`Query`] filter
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_ecs::prelude::*;
+    /// # #[derive(Resource, Default)]
+    /// # struct Counter(u8);
+    /// # let mut app = Schedule::default();
+    /// # let mut world = World::new();
+    /// # world.init_resource::<Counter>();
+    /// app.add_systems(
+    ///     my_system.run_if(any_passing_filter::<(With<MyComponentA>, Without<MyComponentB>)>()),
+    /// );
+    ///
+    /// #[derive(Component)]
+    /// struct MyComponentA;
+    ///
+    /// #[derive(Component)]
+    /// struct MyComponentB;
+    ///
+    /// fn my_system(mut counter: ResMut<Counter>) {
+    ///     counter.0 += 1;
+    /// }
+    ///
+    /// // No entities exist yet with `MyComponentA` nor `MyComponentB` components so `my_system`
+    /// // won't run
+    /// app.run(&mut world);
+    /// assert_eq!(world.resource::<Counter>().0, 0);
+    ///
+    /// let my_entity = world.spawn(MyComponentA).id();
+    ///
+    /// // An entities with `MyComponentA` now exists so `my_system` will run
+    /// app.run(&mut world);
+    /// assert_eq!(world.resource::<Counter>().0, 1);
+    ///
+    /// world.entity_mut(my_entity).insert(MyComponentB);
+    ///
+    /// // An entities with `MyComponentA` and `MyComponentB` now exists so `my_system` won't run
+    /// // anymore
+    /// app.run(&mut world);
+    /// assert_eq!(world.resource::<Counter>().0, 1);
+    /// ```
+    pub fn any_passing_filter<T: ReadOnlyWorldQuery>() -> impl FnMut(Query<(), T>) -> bool + Clone {
+        move |query: Query<(), T>| !query.is_empty()
+    }
+
+    /// Generates a [`Condition`](super::Condition)-satisfying closure that returns `true`
     /// if there are any entities with the given component type.
     ///
     /// # Example
@@ -932,7 +981,7 @@ pub mod common_conditions {
     /// assert_eq!(world.resource::<Counter>().0, 1);
     /// ```
     pub fn any_with_component<T: Component>() -> impl FnMut(Query<(), With<T>>) -> bool + Clone {
-        move |query: Query<(), With<T>>| !query.is_empty()
+        any_passing_filter::<With<T>>()
     }
 
     /// Generates a [`Condition`](super::Condition)-satisfying closure that returns `true`
