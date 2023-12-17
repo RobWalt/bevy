@@ -593,6 +593,17 @@ impl<P: Point> CubicCurve<P> {
     }
 }
 
+impl<P: HasNormal> CubicCurve<P> {
+    /// Compute the normal of a point on the cubic curve at the parametric value `t`.
+    ///
+    /// Note that `t` varies from `0..=(n_points - 3)`.
+    #[inline]
+    pub fn normal(&self, t: f32) -> P::NormalType {
+        let (segment, t) = self.segment(t);
+        segment.normal(t)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use glam::{vec2, Vec2};
