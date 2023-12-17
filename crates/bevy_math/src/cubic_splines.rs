@@ -23,10 +23,49 @@ pub trait Point:
     + Copy
 {
 }
+
 impl Point for Vec3 {}
 impl Point for Vec3A {}
 impl Point for Vec2 {}
 impl Point for f32 {}
+
+/// [`Point`] types that have some useful definition of a normal
+pub trait HasNormal: Point {
+    /// A type representing a normal for the implementor. The primary characteristic of this type is
+    /// that dot products with it should yield zero.
+    ///
+    /// # Examples
+    ///
+    /// - In certain cases, this may simply be the input type, as seen with `Vec2`.
+    /// - In other cases, it could be a specialized type. For instance, in 3D where well-defined normals
+    ///   are absent, a pair of orthonormal vectors is returned.
+    type NormalType;
+    /// calculates a normal, see the docs of [`HasNormal::NormalType`]
+    fn normal(&self) -> Self::NormalType;
+}
+
+impl HasNormal for Vec3 {
+    type NormalType = (Self, Self);
+    fn normal(&self) -> Self::NormalType {
+        self.try_normalize()
+            .map_or((Self::ZERO, Self::ZERO), |v| v.any_orthonormal_pair())
+    }
+}
+
+impl HasNormal for Vec3A {
+    type NormalType = (Self, Self);
+    fn normal(&self) -> Self::NormalType {
+        self.try_normalize()
+            .map_or((Self::ZERO, Self::ZERO), |v| v.any_orthonormal_pair())
+    }
+}
+
+impl HasNormal for Vec2 {
+    type NormalType = Self;
+    fn normal(&self) -> Self::NormalType {
+        self.perp().normalize_or_zero()
+    }
+}
 
 /// A spline composed of a single cubic Bezier curve.
 ///
@@ -320,6 +359,14 @@ impl<P: Point> CubicSegment<P> {
     pub fn acceleration(&self, t: f32) -> P {
         let [_, _, c, d] = self.coeff;
         c * 2.0 + d * 6.0 * t
+    }
+}
+
+impl<P: HasNormal> CubicSegment<P> {
+    /// Normal of a point at parametric value `t`.
+    #[inline]
+    pub fn normal(&self, t: f32) -> P::NormalType {
+        self.velocity(t).normal()
     }
 }
 
