@@ -3,11 +3,14 @@
 //! Includes the implementation of [`Gizmos::arc_2d`],
 //! and assorted support items.
 
-use crate::circles::DEFAULT_CIRCLE_RESOLUTION;
+mod helper;
+
 use crate::prelude::{GizmoConfigGroup, Gizmos};
 use bevy_color::Color;
 use bevy_math::{Quat, Vec2, Vec3};
-use std::f32::consts::TAU;
+use helper::{
+    angle_inverted, arc_2d_inner, arc_3d_inner, from_to_param_converter, resolution_from_angle,
+};
 
 // === 2D ===
 
@@ -117,22 +120,6 @@ where
         .map(|vec2| (vec2 + self.position));
         self.gizmos.linestrip_2d(positions, self.color);
     }
-}
-
-fn arc_2d_inner(
-    direction_angle: f32,
-    arc_angle: f32,
-    radius: f32,
-    resolution: u32,
-) -> impl Iterator<Item = Vec2> {
-    (0..resolution + 1).map(move |i| {
-        let start = direction_angle - arc_angle / 2.;
-
-        let angle =
-            start + (i as f32 * (arc_angle / resolution as f32)) + std::f32::consts::FRAC_PI_2;
-
-        Vec2::new(angle.cos(), angle.sin()) * radius
-    })
 }
 
 // === 3D ===
@@ -254,7 +241,7 @@ where
         to: Vec3,
         color: impl Into<Color>,
     ) -> Arc3dBuilder<'_, 'w, 's, Config, Clear> {
-        self.arc_from_to(center, from, to, color, |x| x)
+        self.arc_from_to(center, from, to, color, std::convert::identity)
     }
 
     /// Draws the longest arc between two points (`from` and `to`) relative to a specified `center` point.
@@ -301,15 +288,7 @@ where
         to: Vec3,
         color: impl Into<Color>,
     ) -> Arc3dBuilder<'_, 'w, 's, Config, Clear> {
-        self.arc_from_to(center, from, to, color, |angle| {
-            if angle > 0.0 {
-                TAU - angle
-            } else if angle < 0.0 {
-                -TAU - angle
-            } else {
-                0.0
-            }
-        })
+        self.arc_from_to(center, from, to, color, angle_inverted)
     }
 
     #[inline]
@@ -321,17 +300,8 @@ where
         color: impl Into<Color>,
         angle_fn: impl Fn(f32) -> f32,
     ) -> Arc3dBuilder<'_, 'w, 's, Config, Clear> {
-        // `from` and `to` can be the same here since in either case nothing gets rendered and the
-        // orientation ambiguity of `up` doesn't matter
-        let from_axis = (from - center).normalize_or_zero();
-        let to_axis = (to - center).normalize_or_zero();
-        let (up, angle) = Quat::from_rotation_arc(from_axis, to_axis).to_axis_angle();
-
-        let angle = angle_fn(angle);
-        let radius = center.distance(from);
-        let rotation = Quat::from_rotation_arc(Vec3::Y, up);
-
-        let start_vertex = rotation.inverse() * from_axis;
+        let (start_vertex, rotation, angle, radius) =
+            from_to_param_converter(center, from, to, angle_fn);
 
         Arc3dBuilder {
             gizmos: self,
@@ -407,28 +377,4 @@ where
         );
         self.gizmos.linestrip(positions, self.color);
     }
-}
-
-fn arc_3d_inner(
-    start_vertex: Vec3,
-    center: Vec3,
-    rotation: Quat,
-    angle: f32,
-    radius: f32,
-    resolution: u32,
-) -> impl Iterator<Item = Vec3> {
-    // drawing arcs bigger than TAU degrees or smaller than -TAU degrees makes no sense since
-    // we won't see the overlap and we would just decrease the level of details since the resolution
-    // would be larger
-    let angle = angle.clamp(-TAU, TAU);
-    (0..=resolution)
-        .map(move |frac| frac as f32 / resolution as f32)
-        .map(move |percentage| angle * percentage)
-        .map(move |frac_angle| Quat::from_axis_angle(Vec3::Y, frac_angle) * start_vertex)
-        .map(move |p| rotation * (p * radius) + center)
-}
-
-// helper function for getting a default value for the resolution parameter
-fn resolution_from_angle(angle: f32) -> u32 {
-    ((angle.abs() / TAU) * DEFAULT_CIRCLE_RESOLUTION as f32).ceil() as u32
 }
