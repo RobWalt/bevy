@@ -345,6 +345,8 @@ where
     // color of the animated line
     color: Color,
 
+    angle_fn: fn(f32) -> f32,
+
     // number of segments of the animated line
     segments: usize,
     // speed factor for the animation
@@ -386,12 +388,13 @@ where
     Clear: 'static + Send + Sync,
     TimeKind: Default + 'static + Send + Sync,
 {
-    /// Draw an animated line in 3D from `start` to `end`.
+    /// Draw an animated arc in 3D from `from` to `to` with the given `center`. The arc runs over
+    /// the longer of the two paths from `from` to `to`.
     ///
-    /// The line is split into segments that move from `start` to `end` over time. This emphasizes
-    /// the direction of the line and provides a clearer sense of its length.
+    /// The arc is split into segments that move from `from` to `to` over time. This emphasizes
+    /// the direction of the arc and provides a clearer sense of its length.
     ///
-    /// This should be called for each frame the line needs to be rendered.
+    /// This should be called for each frame the arc needs to be rendered.
     ///
     /// # Example
     /// ```
@@ -400,14 +403,67 @@ where
     /// # use bevy_math::prelude::*;
     /// # use bevy_color::palettes::basic::GREEN;
     /// fn system(mut gizmos: AnimatedGizmos) {
-    ///     gizmos.animated_arc(Vec3::X, Vec3::Y, Vec3::ZERO, GREEN)
+    ///     gizmos.animated_arc_long(Vec3::X, Vec3::Y, Vec3::ZERO, GREEN)
     ///           .segments(10)
     ///           .speed(0.5);
     /// }
     /// # bevy_ecs::system::assert_is_system(system);
     /// ```
     #[inline]
-    pub fn animated_arc(
+    pub fn animated_arc_long(
+        &mut self,
+        from: Vec3,
+        to: Vec3,
+        center: Vec3,
+        color: impl Into<Color>,
+    ) -> AnimatedArcBuilder<'_, 'w, 's, Config, Clear, TimeKind> {
+        fn angle_fn_long(angle: f32) -> f32 {
+            if angle > 0.0 {
+                TAU - angle
+            } else if angle < 0.0 {
+                -TAU - angle
+            } else {
+                0.0
+            }
+        }
+        AnimatedArcBuilder {
+            gizmos: self,
+            from,
+            to,
+            center,
+            color: color.into(),
+
+            angle_fn: angle_fn_long,
+
+            segments: 5,
+            speed: 0.1,
+            resolution: None,
+        }
+    }
+
+    /// Draw an animated arc in 3D from `from` to `to` with the given `center`. The arc runs over
+    /// the shorter of the two paths from `from` to `to`.
+    ///
+    /// The arc is split into segments that move from `from` to `to` over time. This emphasizes
+    /// the direction of the arc and provides a clearer sense of its length.
+    ///
+    /// This should be called for each frame the arc needs to be rendered.
+    ///
+    /// # Example
+    /// ```
+    /// # use bevy_gizmos::prelude::*;
+    /// # use bevy_render::prelude::*;
+    /// # use bevy_math::prelude::*;
+    /// # use bevy_color::palettes::basic::GREEN;
+    /// fn system(mut gizmos: AnimatedGizmos) {
+    ///     gizmos.animated_arc_short(Vec3::X, Vec3::Y, Vec3::ZERO, GREEN)
+    ///           .segments(10)
+    ///           .speed(0.5);
+    /// }
+    /// # bevy_ecs::system::assert_is_system(system);
+    /// ```
+    #[inline]
+    pub fn animated_arc_short(
         &mut self,
         from: Vec3,
         to: Vec3,
@@ -420,6 +476,8 @@ where
             to,
             center,
             color: color.into(),
+
+            angle_fn: std::convert::identity,
 
             segments: 5,
             speed: 0.1,
@@ -445,15 +503,7 @@ where
         }
 
         let (start_vertex, rotation, angle, radius) =
-            from_to_param_converter(self.center, self.from, self.to, |angle| {
-                if angle > 0.0 {
-                    TAU - angle
-                } else if angle < 0.0 {
-                    -TAU - angle
-                } else {
-                    0.0
-                }
-            });
+            from_to_param_converter(self.center, self.from, self.to, self.angle_fn);
         let angle = angle.clamp(-TAU, TAU);
         let isometry = Isometry3d::new(self.center, rotation);
         let color = self.color;
