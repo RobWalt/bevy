@@ -18,7 +18,10 @@ use bevy_ecs::system::{Res, SystemParam};
 use bevy_math::{Isometry3d, Quat, Vec2, Vec3};
 use bevy_time::Time;
 
-use crate::prelude::{DefaultGizmoConfigGroup, GizmoConfigGroup, Gizmos};
+use crate::{
+    arcs::helper::from_to_param_converter,
+    prelude::{DefaultGizmoConfigGroup, GizmoConfigGroup, Gizmos},
+};
 
 /// A [`SystemParam`] for drawing animated gizmos, whose segments cycle along the line in a
 /// primitive based direction. The rules for the direction of the animation are listed below
@@ -194,31 +197,17 @@ where
             return;
         }
 
-        let delta_t = self.gizmos.time.elapsed_seconds();
-        let n_f32 = self.segments as f32;
-        // * 2.0 here since otherwise there would be no gaps
-        let seg_length = (n_f32 * 2.0).recip();
         let diff = self.end - self.start;
         let color = self.color;
-        (0..=self.segments)
-            .map(|n| n as f32 / n_f32)
-            .map(|percent| {
-                let percent_offset = percent + delta_t * self.speed;
-                // range 0.0..=(N+1)/N
-                // -> line transitions out of visible range smoothly
-                let modulo = 1.0 + n_f32.recip();
-                let percent_final = percent_offset % modulo;
-                // range (-1/N)..=(N+1)/N
-                // -> line transitions into visible range smoothly
-                [(percent_final - seg_length), percent_final]
-                    // clamp scalars to be inside the line range
-                    .map(|scalar| scalar.clamp(0.0, 1.0))
-                    // scalar -> real 3D position
-                    .map(|scalar| self.start + scalar * diff)
-            })
-            .for_each(|[start, end]| {
-                self.gizmos.line(start, end, color);
-            });
+        sample_percentages(
+            self.segments,
+            self.gizmos.time.elapsed_seconds(),
+            self.speed,
+        )
+        .map(|percentages| percentages.map(|percent| self.start + percent * diff))
+        .for_each(|[start, end]| {
+            self.gizmos.line(start, end, color);
+        });
     }
 }
 
@@ -325,31 +314,17 @@ where
             return;
         }
 
-        let delta_t = self.gizmos.time.elapsed_seconds();
-        let n_f32 = self.segments as f32;
-        // * 2.0 here since otherwise there would be no gaps
-        let seg_length = (n_f32 * 2.0).recip();
         let diff = self.end - self.start;
         let color = self.color;
-        (0..=self.segments)
-            .map(|n| n as f32 / n_f32)
-            .map(|percent| {
-                let percent_offset = percent + delta_t * self.speed;
-                // range 0.0..=(N+1)/N
-                // -> line transitions out of visible range smoothly
-                let modulo = 1.0 + n_f32.recip();
-                let percent_final = percent_offset % modulo;
-                // range (-1/N)..=(N+1)/N
-                // -> line transitions into visible range smoothly
-                [(percent_final - seg_length), percent_final]
-                    // clamp scalars to be inside the line range
-                    .map(|scalar| scalar.clamp(0.0, 1.0))
-                    // scalar -> real 3D position
-                    .map(|scalar| self.start + scalar * diff)
-            })
-            .for_each(|[start, end]| {
-                self.gizmos.line_2d(start, end, color);
-            });
+        sample_percentages(
+            self.segments,
+            self.gizmos.time.elapsed_seconds(),
+            self.speed,
+        )
+        .map(|percentages| percentages.map(|percent| self.start + percent * diff))
+        .for_each(|[start, end]| {
+            self.gizmos.line_2d(start, end, color);
+        });
     }
 }
 
@@ -469,64 +444,61 @@ where
             return;
         }
 
-        let delta_t = self.gizmos.time.elapsed_seconds();
-        let n_f32 = self.segments as f32;
-        // * 2.0 here since otherwise there would be no gaps
-        let seg_length = (n_f32 * 2.0).recip();
-        let color = self.color;
-
-        // `from` and `to` can be the same here since in either case nothing gets rendered and the
-        // orientation ambiguity of `up` doesn't matter
-        let from_axis = (self.from - self.center).normalize_or_zero();
-        let to_axis = (self.to - self.center).normalize_or_zero();
-        let (up, angle) = Quat::from_rotation_arc(from_axis, to_axis).to_axis_angle();
-
-        let angle_fn = |angle| {
-            if angle > 0.0 {
-                TAU - angle
-            } else if angle < 0.0 {
-                -TAU - angle
-            } else {
-                0.0
-            }
-        };
-
-        let angle = angle_fn(angle);
-        let radius = self.center.distance(self.from);
-        let rotation = Quat::from_rotation_arc(Vec3::Y, up);
-
-        let start_vertex = rotation.inverse() * from_axis;
-        let isometry = Isometry3d::new(self.center, rotation);
-
-        // drawing arcs bigger than TAU degrees or smaller than -TAU degrees makes no sense since
-        // we won't see the overlap and we would just decrease the level of details since the resolution
-        // would be larger
-        let angle = angle.clamp(-TAU, TAU);
-        (0..=self.segments)
-            .map(|frac| frac as f32 / self.segments as f32)
-            .map(|percent| {
-                let percent_offset = percent + delta_t * self.speed;
-                // range 0.0..=(N+1)/N
-                // -> line transitions out of visible range smoothly
-                let modulo = 1.0 + n_f32.recip();
-                let percent_final = percent_offset % modulo;
-                // range (-1/N)..=(N+1)/N
-                // -> line transitions into visible range smoothly
-                [(percent_final - seg_length), percent_final]
-                    // clamp scalars to be inside the line range
-                    .map(|scalar| scalar.clamp(0.0, 1.0))
-                    // scalar -> real 3D position
-                    .map(|scalar| scalar * angle)
-                    .map(|frac_angle| Quat::from_axis_angle(Vec3::Y, frac_angle) * start_vertex)
-                    .map(|vec3| isometry * (vec3 * radius))
-            })
-            .for_each(|[start, end]| {
-                let arc_builder = self
-                    .gizmos
-                    .short_arc_3d_between(self.center, start, end, color);
-                if let Some(resolution) = self.resolution {
-                    arc_builder.resolution(resolution);
+        let (start_vertex, rotation, angle, radius) =
+            from_to_param_converter(self.center, self.from, self.to, |angle| {
+                if angle > 0.0 {
+                    TAU - angle
+                } else if angle < 0.0 {
+                    -TAU - angle
+                } else {
+                    0.0
                 }
             });
+        let angle = angle.clamp(-TAU, TAU);
+        let isometry = Isometry3d::new(self.center, rotation);
+        let color = self.color;
+
+        sample_percentages(
+            self.segments,
+            self.gizmos.time.elapsed_seconds(),
+            self.speed,
+        )
+        .map(|percentages| {
+            percentages
+                .map(|percent| percent * angle)
+                .map(|frac_angle| Quat::from_axis_angle(Vec3::Y, frac_angle) * start_vertex)
+                .map(|vec3| isometry * (vec3 * radius))
+        })
+        .for_each(|[start, end]| {
+            let arc_builder = self
+                .gizmos
+                .short_arc_3d_between(self.center, start, end, color);
+            if let Some(resolution) = self.resolution {
+                arc_builder.resolution(resolution);
+            }
+        });
     }
+}
+
+fn sample_percentages(
+    num_segments: usize,
+    delta_t: f32,
+    speed: f32,
+) -> impl Iterator<Item = [f32; 2]> {
+    let num_f32 = num_segments as f32;
+    (0..=num_segments)
+        .map(move |frac| frac as f32 / num_f32)
+        .map(move |percent| percent + delta_t * speed)
+        .map(move |percent| {
+            // range 0.0..=(N+1)/N
+            // -> line transitions out of visible range smoothly
+            let modulo = 1.0 + num_f32.recip();
+            percent % modulo
+        })
+        .map(move |percent| {
+            let segment_length = (num_f32 * 2.0).recip();
+            // range (-1/N)..=(N+1)/N
+            // -> line transitions into visible range smoothly
+            [(percent - segment_length), percent].map(|percent| percent.clamp(0.0, 1.0))
+        })
 }

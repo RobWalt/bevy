@@ -3,7 +3,7 @@
 //! Includes the implementation of [`Gizmos::arc_2d`],
 //! and assorted support items.
 
-mod helper;
+pub(crate) mod helper;
 
 use crate::prelude::{GizmoConfigGroup, Gizmos};
 use bevy_color::Color;
