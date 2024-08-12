@@ -328,7 +328,7 @@ where
     }
 }
 
-/// A builder returned by [`AnimatedGizmos::animated_arc`].
+/// A builder returned by [`AnimatedGizmos::animated_arc_long`] & [`AnimatedGizmos::animated_arc_short`].
 pub struct AnimatedArcBuilder<'a, 'w, 's, Config, Clear, TimeKind>
 where
     Config: GizmoConfigGroup,
@@ -523,6 +523,163 @@ where
             let arc_builder = self
                 .gizmos
                 .short_arc_3d_between(self.center, start, end, color);
+            if let Some(resolution) = self.resolution {
+                arc_builder.resolution(resolution);
+            }
+        });
+    }
+}
+
+/// A builder returned by [`AnimatedGizmos::animated_arc_2d`].
+pub struct AnimatedArc2dBuilder<'a, 'w, 's, Config, Clear, TimeKind>
+where
+    Config: GizmoConfigGroup,
+    Clear: 'static + Send + Sync,
+    TimeKind: Default + 'static + Send + Sync,
+{
+    gizmos: &'a mut AnimatedGizmos<'w, 's, Config, Clear, TimeKind>,
+    position: Vec2,
+    direction_angle: f32,
+    arc_angle: f32,
+    radius: f32,
+    color: Color,
+
+    // number of segments of the animated line
+    segments: usize,
+    // speed factor for the animation
+    speed: f32,
+    // detail of the arc segments
+    resolution: Option<u32>,
+}
+
+impl<Config, Clear, TimeKind> AnimatedArc2dBuilder<'_, '_, '_, Config, Clear, TimeKind>
+where
+    Config: GizmoConfigGroup,
+    Clear: 'static + Send + Sync,
+    TimeKind: Default + 'static + Send + Sync,
+{
+    /// Sets the number of animated segments that make up the arc.
+    pub fn segments(mut self, segments: usize) -> Self {
+        self.segments = segments;
+        self
+    }
+
+    /// Sets the animation speed factor for the arc.
+    ///
+    /// This determines the velocity at which the arc segments move from the starting point to the endpoint.
+    pub fn speed(mut self, factor: f32) -> Self {
+        self.speed = factor;
+        self
+    }
+
+    /// Set the number of lines used to approximate the geometry of this arc.
+    pub fn resolution(mut self, resolution: u32) -> Self {
+        self.resolution.replace(resolution);
+        self
+    }
+}
+
+impl<'w, 's, Config, Clear, TimeKind> AnimatedGizmos<'w, 's, Config, Clear, TimeKind>
+where
+    Config: GizmoConfigGroup,
+    Clear: 'static + Send + Sync,
+    TimeKind: Default + 'static + Send + Sync,
+{
+    /// Draw an arc, which is a part of the circumference of a circle, in 2D.
+    ///
+    /// The arc is split into segments that move from `from` to `to` over time. This emphasizes
+    /// the direction of the arc and provides a clearer sense of its length.
+    ///
+    /// This should be called for each frame the arc needs to be rendered.
+    ///
+    /// # Arguments
+    /// - `position` sets the center of this circle.
+    /// - `direction_angle` sets the counter-clockwise  angle in radians between `Vec2::Y` and
+    ///     the vector from `position` to the midpoint of the arc.
+    /// - `arc_angle` sets the length of this arc, in radians.
+    /// - `radius` controls the distance from `position` to this arc, and thus its curvature.
+    /// - `color` sets the color to draw the arc.
+    ///
+    /// # Example
+    /// ```
+    /// # use bevy_gizmos::prelude::*;
+    /// # use bevy_render::prelude::*;
+    /// # use bevy_math::prelude::*;
+    /// # use std::f32::consts::PI;
+    /// # use bevy_color::palettes::basic::{GREEN, RED};
+    /// fn system(mut gizmos: AnimatedGizmos) {
+    ///     gizmos.animated_arc_2d(Vec2::ZERO, 0., PI / 4., 1., GREEN);
+    ///
+    ///     // Arcs have 32 line-segments by default.
+    ///     // You may want to increase this for larger arcs.
+    ///     gizmos
+    ///         .animated_arc_2d(Vec2::ZERO, 0., PI / 4., 5., RED)
+    ///         .resolution(64);
+    /// }
+    /// # bevy_ecs::system::assert_is_system(system);
+    /// ```
+    #[inline]
+    pub fn animated_arc_2d(
+        &mut self,
+        position: Vec2,
+        direction_angle: f32,
+        arc_angle: f32,
+        radius: f32,
+        color: impl Into<Color>,
+    ) -> AnimatedArc2dBuilder<'_, 'w, 's, Config, Clear, TimeKind> {
+        AnimatedArc2dBuilder {
+            gizmos: self,
+            position,
+            direction_angle,
+            arc_angle,
+            radius,
+            color: color.into(),
+
+            segments: 5,
+            speed: 0.1,
+            resolution: None,
+        }
+    }
+}
+
+impl<Config, Clear, TimeKind> Drop for AnimatedArc2dBuilder<'_, '_, '_, Config, Clear, TimeKind>
+where
+    Config: GizmoConfigGroup,
+    Clear: 'static + Send + Sync,
+    TimeKind: Default + 'static + Send + Sync,
+{
+    fn drop(&mut self) {
+        if !self.gizmos.gizmos.enabled {
+            return;
+        }
+
+        // prevent division by zero, we always want to have at least one segment
+        if self.segments == 0 {
+            return;
+        }
+
+        let color = self.color;
+
+        sample_percentages(
+            self.segments,
+            self.gizmos.time.elapsed_seconds(),
+            self.speed,
+        )
+        .map(|[start, end]| ([start, end], (start - end).abs()))
+        .map(|([start, _end], length)| {
+            (
+                self.direction_angle + start * self.arc_angle + length,
+                length * self.arc_angle,
+            )
+        })
+        .for_each(|(direction_angle, arc_angle)| {
+            let arc_builder = self.gizmos.arc_2d(
+                self.position,
+                direction_angle,
+                arc_angle,
+                self.radius,
+                color,
+            );
             if let Some(resolution) = self.resolution {
                 arc_builder.resolution(resolution);
             }

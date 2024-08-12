@@ -3161,13 +3161,24 @@ category = "Gizmos"
 wasm = true
 
 [[example]]
-name = "animated_gizmos"
-path = "examples/gizmos/animated_gizmos.rs"
+name = "2d_animated_gizmos"
+path = "examples/gizmos/2d_animated_gizmos.rs"
 doc-scrape-examples = true
 
-[package.metadata.example.animated_gizmos]
-name = "Animated Gizmos"
-description = "A scene showcasing animated gizmos"
+[package.metadata.example.2d_animated_gizmos]
+name = "Animated Gizmos 2D"
+description = "A scene showcasing 2D animated gizmos"
+category = "Gizmos"
+wasm = true
+
+[[example]]
+name = "3d_animated_gizmos"
+path = "examples/gizmos/3d_animated_gizmos.rs"
+doc-scrape-examples = true
+
+[package.metadata.example.3d_animated_gizmos]
+name = "Animated Gizmos 3D"
+description = "A scene showcasing 3D animated gizmos"
 category = "Gizmos"
 wasm = true
 

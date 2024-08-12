@@ -11,10 +11,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 0.0, 7.0).looking_at(Vec3::ZERO, Vec3::Z),
-        ..Default::default()
-    });
+    commands.spawn(Camera2dBundle::default());
 }
 
 fn draw_example_collection(
@@ -33,19 +30,30 @@ fn draw_example_collection(
             .zip(colors.into_iter().cycle())
             .for_each(|(n, color)| {
                 let speed = n as f32 * 0.01;
-                let offset = Vec3::Y * n as f32 * 0.1;
-                let start = Vec3::X + offset - Vec3::ONE * 0.5 - Vec3::Y * 2.0;
-                let end = Vec3::Y + offset - Vec3::ONE * 0.5 - Vec3::Y * 2.0;
+                let offset = Vec2::Y * n as f32 * 10.0;
+                let start = Vec2::X * 100.0 + offset - Vec2::ONE * 50.0 - Vec2::X * 200.0;
+                let end = Vec2::Y * 100.0 + offset - Vec2::ONE * 50.0 - Vec2::X * 200.0;
                 gizmos
-                    .animated_line(start, end, color)
+                    .animated_line_2d(start, end, color)
                     .segments(n as usize)
                     .speed(speed);
                 let center = (start + end) / 2.0;
                 gizmos
-                    .animated_arc(start, end, center, color)
+                    .animated_arc_2d(
+                        center + Vec2::X * 250.0,
+                        0.0,
+                        180.0_f32.to_radians(),
+                        50.0,
+                        color,
+                    )
                     .segments(n as usize)
                     .speed(speed)
                     .resolution(n as u32);
+                gizmos.line_2d(
+                    center - Vec2::Y * 50.0 + Vec2::X * 250.0,
+                    center + Vec2::Y * 50.0 + Vec2::X * 250.0,
+                    color,
+                );
             });
     }
 }
