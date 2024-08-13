@@ -6,8 +6,8 @@
 use crate::circles::DEFAULT_CIRCLE_RESOLUTION;
 use crate::prelude::{GizmoConfigGroup, Gizmos};
 use bevy_color::Color;
-use bevy_math::{Quat, Vec2, Vec3};
-use std::f32::consts::TAU;
+use bevy_math::{Isometry2d, Quat, Rot2, Vec2, Vec3};
+use std::f32::consts::{FRAC_PI_2, TAU};
 
 // === 2D ===
 
@@ -21,9 +21,9 @@ where
     /// This should be called for each frame the arc needs to be rendered.
     ///
     /// # Arguments
-    /// - `position` sets the center of this circle.
-    /// - `direction_angle` sets the counter-clockwise  angle in radians between `Vec2::Y` and
-    ///     the vector from `position` to the midpoint of the arc.
+    /// - `isometry` defines the translation and rotation of the arc.
+    ///   - the translation specifies the center of the arc
+    ///   - the rotation is counter-clockwise starting from `Vec2::Y`
     /// - `arc_angle` sets the length of this arc, in radians.
     /// - `radius` controls the distance from `position` to this arc, and thus its curvature.
     /// - `color` sets the color to draw the arc.
@@ -49,16 +49,146 @@ where
     #[inline]
     pub fn arc_2d(
         &mut self,
-        position: Vec2,
-        direction_angle: f32,
+        isometry: Isometry2d,
         arc_angle: f32,
         radius: f32,
         color: impl Into<Color>,
     ) -> Arc2dBuilder<'_, 'w, 's, Config, Clear> {
         Arc2dBuilder {
             gizmos: self,
-            position,
-            direction_angle,
+            isometry,
+            arc_angle,
+            radius,
+            color: color.into(),
+            resolution: None,
+        }
+    }
+
+    /// Draws the shortest arc between two points (`from` and `to`) relative to a specified `center` point.
+    ///
+    /// # Arguments
+    ///
+    /// - `center`: The center point around which the arc is drawn.
+    /// - `from`: The starting point of the arc.
+    /// - `to`: The ending point of the arc.
+    /// - `color`: color of the arc
+    ///
+    /// # Builder methods
+    /// The resolution of the arc (i.e. the level of detail) can be adjusted with the
+    /// `.resolution(...)` method.
+    ///
+    /// # Examples
+    /// ```
+    /// # use bevy_gizmos::prelude::*;
+    /// # use bevy_render::prelude::*;
+    /// # use bevy_math::prelude::*;
+    /// # use bevy_color::palettes::css::ORANGE;
+    /// fn system(mut gizmos: Gizmos) {
+    ///     gizmos.short_arc_2d_between(
+    ///        Vec2::ZERO,
+    ///        Vec2::X,
+    ///        Vec2::Y,
+    ///        ORANGE
+    ///        )
+    ///        .resolution(100);
+    /// }
+    /// # bevy_ecs::system::assert_is_system(system);
+    /// ```
+    ///
+    /// # Notes
+    /// - This method assumes that the points `from` and `to` are distinct from `center`. If one of
+    ///     the points is coincident with `center`, nothing is rendered.
+    /// - The arc is drawn as a portion of a circle with a radius equal to the distance from the
+    ///     `center` to `from`. If the distance from `center` to `to` is not equal to the radius, then
+    ///     the results will behave as if this were the case
+    #[inline]
+    pub fn short_arc_2d_between(
+        &mut self,
+        center: Vec2,
+        from: Vec2,
+        to: Vec2,
+        color: impl Into<Color>,
+    ) -> Arc2dBuilder<'_, 'w, 's, Config, Clear> {
+        self.arc_2d_from_to(center, from, to, color, |x| x)
+    }
+
+    /// Draws the longest arc between two points (`from` and `to`) relative to a specified `center` point.
+    ///
+    /// # Arguments
+    /// - `center`: The center point around which the arc is drawn.
+    /// - `from`: The starting point of the arc.
+    /// - `to`: The ending point of the arc.
+    /// - `color`: color of the arc
+    ///
+    /// # Builder methods
+    /// The resolution of the arc (i.e. the level of detail) can be adjusted with the
+    /// `.resolution(...)` method.
+    ///
+    /// # Examples
+    /// ```
+    /// # use bevy_gizmos::prelude::*;
+    /// # use bevy_render::prelude::*;
+    /// # use bevy_math::prelude::*;
+    /// # use bevy_color::palettes::css::ORANGE;
+    /// fn system(mut gizmos: Gizmos) {
+    ///     gizmos.long_arc_2d_between(
+    ///        Vec2::ZERO,
+    ///        Vec2::X,
+    ///        Vec2::Y,
+    ///        ORANGE
+    ///        )
+    ///        .resolution(100);
+    /// }
+    /// # bevy_ecs::system::assert_is_system(system);
+    /// ```
+    ///
+    /// # Notes
+    /// - This method assumes that the points `from` and `to` are distinct from `center`. If one of
+    ///     the points is coincident with `center`, nothing is rendered.
+    /// - The arc is drawn as a portion of a circle with a radius equal to the distance from the
+    ///     `center` to `from`. If the distance from `center` to `to` is not equal to the radius, then
+    ///     the results will behave as if this were the case.
+    #[inline]
+    pub fn long_arc_2d_between(
+        &mut self,
+        center: Vec2,
+        from: Vec2,
+        to: Vec2,
+        color: impl Into<Color>,
+    ) -> Arc2dBuilder<'_, 'w, 's, Config, Clear> {
+        self.arc_2d_from_to(center, from, to, color, |angle| {
+            if angle > 0.0 {
+                -TAU + angle
+            } else if angle < 0.0 {
+                TAU + angle
+            } else {
+                0.0
+            }
+        })
+    }
+
+    #[inline]
+    fn arc_2d_from_to(
+        &mut self,
+        center: Vec2,
+        from: Vec2,
+        to: Vec2,
+        color: impl Into<Color>,
+        angle_fn: impl Fn(f32) -> f32,
+    ) -> Arc2dBuilder<'_, 'w, 's, Config, Clear> {
+        // `from` and `to` can be the same here since in either case nothing gets rendered and the
+        // orientation ambiguity of `up` doesn't matter
+        let from_axis = (from - center).normalize_or_zero();
+        let to_axis = (to - center).normalize_or_zero();
+        let rotation = Vec2::X.angle_to(from_axis);
+        let arc_angle_raw = from_axis.angle_to(to_axis);
+
+        let arc_angle = angle_fn(arc_angle_raw);
+        let radius = center.distance(from);
+
+        Arc2dBuilder {
+            gizmos: self,
+            isometry: Isometry2d::new(center, Rot2::radians(rotation)),
             arc_angle,
             radius,
             color: color.into(),
@@ -74,8 +204,7 @@ where
     Clear: 'static + Send + Sync,
 {
     gizmos: &'a mut Gizmos<'w, 's, Config, Clear>,
-    position: Vec2,
-    direction_angle: f32,
+    isometry: Isometry2d,
     arc_angle: f32,
     radius: f32,
     color: Color,
@@ -108,31 +237,19 @@ where
             .resolution
             .unwrap_or_else(|| resolution_from_angle(self.arc_angle));
 
-        let positions = arc_2d_inner(
-            self.direction_angle,
-            self.arc_angle,
-            self.radius,
-            resolution,
-        )
-        .map(|vec2| (vec2 + self.position));
+        let positions =
+            arc_2d_inner(self.arc_angle, self.radius, resolution).map(|vec2| self.isometry * vec2);
         self.gizmos.linestrip_2d(positions, self.color);
     }
 }
 
-fn arc_2d_inner(
-    direction_angle: f32,
-    arc_angle: f32,
-    radius: f32,
-    resolution: u32,
-) -> impl Iterator<Item = Vec2> {
-    (0..resolution + 1).map(move |i| {
-        let start = direction_angle - arc_angle / 2.;
-
-        let angle =
-            start + (i as f32 * (arc_angle / resolution as f32)) + std::f32::consts::FRAC_PI_2;
-
-        Vec2::new(angle.cos(), angle.sin()) * radius
-    })
+fn arc_2d_inner(arc_angle: f32, radius: f32, resolution: u32) -> impl Iterator<Item = Vec2> {
+    (0..=resolution)
+        .map(move |n| n as f32 * arc_angle / resolution as f32)
+        .map(|angle| angle + FRAC_PI_2)
+        .map(f32::sin_cos)
+        .map(|(sin, cos)| Vec2::new(cos, sin))
+        .map(move |vec2| vec2 * radius)
 }
 
 // === 3D ===
