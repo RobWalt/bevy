@@ -3307,6 +3307,17 @@ description = "Shows off rendering for all math primitives as both Meshes and Gi
 category = "Math"
 wasm = true
 
+[[example]]
+name = "curve_adaptors"
+path = "examples/math/curve_adaptors.rs"
+doc-scrape-examples = true
+
+[package.metadata.example.curve_adaptors]
+name = "Curve Adaptors"
+description = "Shows off transformations of Curves via adaptor methods"
+category = "Math"
+wasm = true
+
 # Gizmos
 [[example]]
 name = "2d_gizmos"
