@@ -3240,28 +3240,6 @@ description = "Demonstrates creating and using custom Ui materials"
 category = "UI (User Interface)"
 wasm = true
 
-[[example]]
-name = "cubic_splines"
-path = "examples/math/cubic_splines.rs"
-doc-scrape-examples = true
-
-[package.metadata.example.cubic_splines]
-name = "Cubic Splines"
-description = "Exhibits different modes of constructing cubic curves using splines"
-category = "Math"
-wasm = true
-
-[[example]]
-name = "render_primitives"
-path = "examples/math/render_primitives.rs"
-doc-scrape-examples = true
-
-[package.metadata.example.render_primitives]
-name = "Rendering Primitives"
-description = "Shows off rendering for all math primitives as both Meshes and Gizmos"
-category = "Math"
-wasm = true
-
 # Math
 [[example]]
 name = "sampling_primitives"
@@ -3304,6 +3282,28 @@ doc-scrape-examples = true
 [package.metadata.example.smooth_follow]
 name = "Smooth Follow"
 description = "Demonstrates how to make an entity smoothly follow another using interpolation"
+category = "Math"
+wasm = true
+
+[[example]]
+name = "cubic_splines"
+path = "examples/math/cubic_splines.rs"
+doc-scrape-examples = true
+
+[package.metadata.example.cubic_splines]
+name = "Cubic Splines"
+description = "Exhibits different modes of constructing cubic curves using splines"
+category = "Math"
+wasm = true
+
+[[example]]
+name = "render_primitives"
+path = "examples/math/render_primitives.rs"
+doc-scrape-examples = true
+
+[package.metadata.example.render_primitives]
+name = "Rendering Primitives"
+description = "Shows off rendering for all math primitives as both Meshes and Gizmos"
 category = "Math"
 wasm = true
 
